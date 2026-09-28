@@ -1,0 +1,21 @@
+name = "drnettimer"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Secrets (not here): npx wrangler secret put BOT_TOKEN / WEBHOOK_SECRET
+[vars]
+BOT_USERNAME = "DrNetTimer"
+TICK = "10"          # seconds between edits of each countdown message
+TZ_OFFSET = "+03:30" # time zone for "18:30" and date inputs
+ALLOWED_USERS = ""   # comma-separated Telegram user IDs who may create countdowns; empty = anyone
+
+[[durable_objects.bindings]]
+name = "COUNTDOWN"
+class_name = "Countdown"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Countdown"]
+
+[observability]
+enabled = true
