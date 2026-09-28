@@ -10,7 +10,7 @@
 // needs storage.
 
 import { DurableObject } from "cloudflare:workers";
-import { DONE_TEXT, countdown, formatLeft, isDone, nextTick, parseQuery, renderMessage, tzMinutes } from "./core.js";
+import { DONE_TEXT, countdown, formatLeft, isAllowed, isDone, nextTick, parseQuery, renderMessage, tzMinutes } from "./core.js";
 
 const ALLOWED_UPDATES = ["message", "inline_query", "chosen_inline_result", "callback_query"];
 const STEP = 60; // the message shows minutes, so it's edited once a minute, as the minute changes
@@ -32,10 +32,7 @@ async function tg(env, method, body) {
   }
 }
 
-function allowed(env, userId) {
-  const ids = String(env.ALLOWED_USERS ?? "").split(/[\s,]+/).filter(Boolean);
-  return ids.length === 0 || ids.includes(String(userId));
-}
+const allowed = (env, userId) => isAllowed(env.ALLOWED_USERS, userId);
 
 // Bot username for help texts, from getMe (cached per isolate).
 let botUsername;
@@ -63,6 +60,9 @@ function helpText(env, bot, userId) {
     "پیام هر دقیقه به‌روز می‌شود؛ دکمهٔ «⏱ زمان دقیق» زمان باقی‌مانده را تا ثانیه نشان می‌دهد.",
     "",
     `🆔 شناسهٔ شما: <code>${userId}</code>`,
+    ...(String(env.ALLOWED_USERS ?? "").trim()
+      ? [allowed(env, userId) ? "🔒 ربات خصوصی است و شما اجازهٔ ساخت شمارش دارید ✅" : "🔒 ربات خصوصی است و شما اجازهٔ ساخت شمارش ندارید ⛔️"]
+      : []),
   ].join("\n");
 }
 
@@ -102,7 +102,7 @@ async function handle(update, env) {
     const q = update.inline_query;
     const answer = { method: "answerInlineQuery", inline_query_id: q.id, cache_time: 0, is_personal: true, results: [] };
     if (!allowed(env, q.from.id)) {
-      return { ...answer, cache_time: 300, button: { text: "⛔️ این ربات خصوصی است", start_parameter: "private" } };
+      return { ...answer, button: { text: "⛔️ این ربات خصوصی است", start_parameter: "private" } };
     }
     const p = parseQuery(q.query, now, tz);
     if (!p?.target) {

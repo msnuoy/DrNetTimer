@@ -4,6 +4,7 @@ import {
   DONE_TEXT,
   countdown,
   formatLeft,
+  isAllowed,
   isDone,
   jalaliToGregorian,
   nextTick,
@@ -140,4 +141,17 @@ test("tzMinutes", () => {
   assert.equal(tzMinutes("0"), 0);
   assert.equal(tzMinutes(undefined), 210);
   assert.equal(tzMinutes("Asia/Tehran"), 210);
+});
+
+test("isAllowed: empty list lets everyone in, otherwise only the IDs found in it", () => {
+  for (const v of [undefined, "", "   "]) assert.equal(isAllowed(v, 42), true);
+  assert.equal(isAllowed("768795836", 768795836), true);
+  assert.equal(isAllowed("768795836", 111111111), false);
+  assert.equal(isAllowed("111111, 222222", 222222), true);
+  assert.equal(isAllowed("\u200f768795836\u200e\r\n", 768795836), true); // direction marks, newline
+  assert.equal(isAllowed("۷۶۸۷۹۵۸۳۶", 768795836), true); // Persian digits
+  const pasted = "⏳ DrNetTimerbot — شمارش معکوس زنده\n• مدت: 3d · 2h30m · 90s\n• تاریخ: 1405/07/10 18:30\n🆔 شناسهٔ شما: 768795836";
+  assert.equal(isAllowed(pasted, 768795836), true); // whole /start reply pasted
+  assert.equal(isAllowed(pasted, 1405), false); // short numbers in it are not IDs
+  assert.equal(isAllowed("⏳ DrNetTimerbot — شمارش معکوس زنده", 768795836), false); // no ID → nobody
 });

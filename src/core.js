@@ -83,6 +83,18 @@ export function tzMinutes(s) {
 // UTF-16 unit to one, so match indices stay valid on the original string.
 const latinDigits = (s) => s.replace(/[۰-۹٠-٩]/g, (c) => String(c.charCodeAt(0) & 0xf));
 
+/**
+ * Whether a Telegram user may create countdowns. An empty ALLOWED_USERS lets
+ * everyone in; otherwise only the IDs in it (runs of 5+ digits), so stray
+ * spaces, commas, invisible direction marks or text pasted around an ID
+ * don't matter. A value with no ID in it lets nobody in.
+ */
+export function isAllowed(allowedUsers, userId) {
+  const raw = String(allowedUsers ?? "").trim();
+  if (!raw) return true;
+  return (latinDigits(raw).match(/\d{5,}/g) ?? []).includes(String(userId));
+}
+
 /** Jalali (Shamsi) date → Gregorian [y, m, d]; arithmetic 33-year cycle (jdf). */
 export function jalaliToGregorian(jy, jm, jd) {
   jy += 1595;
