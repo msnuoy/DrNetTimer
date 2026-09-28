@@ -35,16 +35,17 @@ Countdown (یک DO برای هر پیام) ── alarm هر TICK ثانیه ─
 ## راه‌اندازی
 
 1. در [@BotFather](https://t.me/BotFather):
-   - `/newbot` و گرفتن توکن
+   - `/newbot` و گرفتن توکن. username ربات باید به `bot` ختم شود (مثلاً `DrNetTimerBot`).
+     همان را بدون @ در `BOT_USERNAME` داخل `wrangler.toml` بگذارید.
    - `/setinline` برای روشن کردن Inline Mode (placeholder مثلاً: `3d عنوان`)
    - `/setinlinefeedback` و انتخاب **Enabled**. **ضروری است**، وگرنه `inline_message_id` نمی‌رسد و پیام زنده نمی‌شود.
-2. دیپلوی:
+2. دیپلوی (نیازمند Node.js نسخهٔ ۲۲ یا بالاتر و یک حساب رایگان Cloudflare):
    ```bash
    npm install
    npx wrangler login
+   npx wrangler deploy                      # آدرس Worker را چاپ می‌کند
    npx wrangler secret put BOT_TOKEN        # توکن BotFather
-   npx wrangler secret put WEBHOOK_SECRET   # یک رشتهٔ تصادفی مثل: openssl rand -hex 32
-   npx wrangler deploy
+   npx wrangler secret put WEBHOOK_SECRET   # رشتهٔ تصادفی (فقط A-Z a-z 0-9 _ -)، مثل: openssl rand -hex 32
    ```
 3. یک بار این آدرس را باز کنید تا webhook ثبت شود:
    `https://drnettimer.<subdomain>.workers.dev/setup?key=<WEBHOOK_SECRET>`
