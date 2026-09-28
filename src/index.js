@@ -6,18 +6,26 @@
 //   a Countdown for it.
 // Countdown (Durable Object, one per sent message): keeps {id, target, title}
 //   and edits the message on an alarm every TICK seconds until the target.
-// The target time travels inside result_id / callback_data, so nothing else
-// needs storage.
+// /t/…: live page behind the "⏱ زمان دقیق" button, ticking every second.
+// The target time travels inside result_id and the button link, so nothing
+// else needs storage.
 
 import { DurableObject } from "cloudflare:workers";
 import { DONE_TEXT, formatLeft, isDone, nextTick, parseQuery, renderMessage, tzMinutes } from "./core.js";
+import { pageUrl, readPageUrl, renderPage } from "./page.js";
 
 const ALLOWED_UPDATES = ["message", "inline_query", "chosen_inline_result", "callback_query"];
 const STEPS = [5, 10, 15, 20, 30, 60]; // tick ladder used to slow down after a 429
 
 const enc = (target) => (target / 1000).toString(36);
 const dec = (s) => parseInt(s, 36) * 1000;
-const keyboard = (target) => ({ inline_keyboard: [[{ text: "⏱ زمان دقیق", callback_data: "t" + enc(target) }]] });
+
+async function keyboard(env, origin, target, title) {
+  const button = origin
+    ? { text: "⏱ زمان دقیق", url: await pageUrl(origin, env.WEBHOOK_SECRET, target, title) }
+    : { text: "⏱ زمان دقیق", callback_data: "t" + enc(target) }; // countdowns started before the live page
+  return { inline_keyboard: [[button]] };
+}
 
 async function tg(env, method, body) {
   try {
@@ -57,7 +65,10 @@ function helpText(env, bot, userId) {
     "• تاریخ: <code>1405/07/10 18:30</code> یا <code>2026-10-02 18:30</code>",
     `ساعت‌ها به وقت UTC${env.TZ_OFFSET || "+03:30"} هستند.`,
     "",
-    "پیام خودکار به‌روز می‌شود؛ دکمهٔ «⏱ زمان دقیق» ثانیه‌شمار لحظه‌ای را نشان می‌دهد.",
+    "• با <code>{}</code> جای شمارش را وسط متن خودتان بگذارید:",
+    `<code>@${bot} 3d تا انتشار {} مانده</code>`,
+    "",
+    "پیام هر چند ثانیه به‌روز می‌شود؛ دکمهٔ «⏱ زمان دقیق» شمارش ثانیه‌به‌ثانیه را باز می‌کند.",
     "",
     `🆔 شناسهٔ شما: <code>${userId}</code>`,
   ].join("\n");
@@ -91,7 +102,7 @@ async function setup(env, origin) {
 }
 
 // Returns a Bot API call to send back as the webhook response, or null.
-async function handle(update, env) {
+async function handle(update, env, origin) {
   const now = Date.now();
   const tz = tzMinutes(env.TZ_OFFSET);
 
@@ -109,10 +120,10 @@ async function handle(update, env) {
     answer.results.push({
       type: "article",
       id: "c" + enc(p.target),
-      title: p.title || "شمارش معکوس",
+      title: p.title.replaceAll("{}", "⏳") || "شمارش معکوس",
       description: formatLeft(p.target - now),
       input_message_content: { message_text: renderMessage(p.title, p.target, now), parse_mode: "HTML" },
-      reply_markup: keyboard(p.target),
+      reply_markup: await keyboard(env, origin, p.target, p.title),
     });
     return answer;
   }
@@ -123,7 +134,7 @@ async function handle(update, env) {
     if (r.inline_message_id && Number.isFinite(target) && allowed(env, r.from.id)) {
       const title = parseQuery(r.query, now, tz)?.title ?? "";
       const stub = env.COUNTDOWN.get(env.COUNTDOWN.idFromName(r.inline_message_id));
-      await stub.start({ id: r.inline_message_id, target, title });
+      await stub.start({ id: r.inline_message_id, target, title, origin });
     }
     return null;
   }
@@ -154,11 +165,23 @@ export default {
       return Response.json(await setup(env, url.origin));
     }
 
+    if (url.pathname.startsWith("/t/")) {
+      const page = await readPageUrl(url, secret);
+      if (!page) return new Response("not found", { status: 404 });
+      return new Response(renderPage({ ...page, now: Date.now() }), {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
+        },
+      });
+    }
+
     if (request.method !== "POST") return new Response("DrNetTimer is running.");
     if (!secret || request.headers.get("x-telegram-bot-api-secret-token") !== secret) {
       return new Response("unauthorized", { status: 401 });
     }
-    const reply = await handle(await request.json(), env);
+    const reply = await handle(await request.json(), env, url.origin);
     return reply ? Response.json(reply) : new Response(null);
   },
 };
@@ -183,7 +206,8 @@ export class Countdown extends DurableObject {
       inline_message_id: job.id,
       text: renderMessage(job.title, job.target, now),
       parse_mode: "HTML",
-      reply_markup: done ? undefined : keyboard(job.target), // drop the button once finished
+      // drop the button once finished
+      reply_markup: done ? undefined : await keyboard(this.env, job.origin, job.target, job.title),
     });
 
     if (res.ok || /not modified/i.test(res.description ?? "")) {

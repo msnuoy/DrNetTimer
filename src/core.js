@@ -12,22 +12,35 @@ export const DONE_TEXT = "✅ زمان به پایان رسید!";
 const pad = (n) => String(n).padStart(2, "0");
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-/** Countdown line, e.g. "⏳ 02 روز 14 ساعت 32 دقیقه 08 ثانیه". */
-export function formatLeft(ms) {
+/** "02 روز 14 ساعت 32 دقیقه 08 ثانیه"; `wrap` styles each number. */
+export function countdown(ms, wrap = (n) => n) {
   const t = Math.max(0, Math.round(ms / SEC));
-  const d = Math.floor(t / 86400);
-  const h = Math.floor((t % 86400) / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  return `⏳ ${pad(d)} روز ${pad(h)} ساعت ${pad(m)} دقیقه ${pad(t % 60)} ثانیه`;
+  const [d, h, m, s] = [Math.floor(t / 86400), Math.floor((t % 86400) / 3600), Math.floor((t % 3600) / 60), t % 60];
+  return `${wrap(pad(d))} روز ${wrap(pad(h))} ساعت ${wrap(pad(m))} دقیقه ${wrap(pad(s))} ثانیه`;
 }
+
+/** Plain countdown line, e.g. "⏳ 02 روز 14 ساعت 32 دقیقه 08 ثانیه". */
+export const formatLeft = (ms) => `⏳ ${countdown(ms)}`;
 
 /** True once the remaining time rounds down to zero seconds. */
 export const isDone = (target, now) => target - now < SEC / 2;
 
-/** Full message body (parse_mode HTML). */
+const bold = (n) => `<b>${n}</b>`;
+
+/**
+ * Message body (parse_mode HTML): the custom text, then the countdown with
+ * bold numbers. A "{}" in the text marks where the countdown goes instead.
+ */
 export function renderMessage(title, target, now) {
-  const line = isDone(target, now) ? DONE_TEXT : formatLeft(target - now);
-  return title ? `<b>${esc(title)}</b>\n\n${line}` : line;
+  const done = isDone(target, now);
+  const left = countdown(done ? 0 : target - now, bold);
+  const text = esc(title);
+  if (text.includes("{}")) {
+    const body = text.split("{}").join(left);
+    return done ? `${body}\n\n${DONE_TEXT}` : body;
+  }
+  const line = done ? DONE_TEXT : `⏳ ${left}`;
+  return text ? `${text}\n\n${line}` : line;
 }
 
 /**

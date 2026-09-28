@@ -26,12 +26,21 @@ test("formatLeft uses the requested layout", () => {
   assert.equal(formatLeft(19.7 * S), "⏳ 00 روز 00 ساعت 00 دقیقه 20 ثانیه"); // slightly late tick
 });
 
-test("renderMessage escapes the title and shows the finished state", () => {
-  assert.equal(renderMessage("a <b> & c", NOW + 90 * S, NOW), "<b>a &lt;b&gt; &amp; c</b>\n\n⏳ 00 روز 00 ساعت 01 دقیقه 30 ثانیه");
-  assert.equal(renderMessage("", NOW + 5 * S, NOW), "⏳ 00 روز 00 ساعت 00 دقیقه 05 ثانیه");
-  assert.equal(renderMessage("x", NOW + 400, NOW), `<b>x</b>\n\n${DONE_TEXT}`);
+const BOLD_90S = "<b>00</b> روز <b>00</b> ساعت <b>01</b> دقیقه <b>30</b> ثانیه";
+const BOLD_ZERO = "<b>00</b> روز <b>00</b> ساعت <b>00</b> دقیقه <b>00</b> ثانیه";
+
+test("renderMessage: custom text, then the countdown with bold numbers", () => {
+  assert.equal(renderMessage("a <b> & c", NOW + 90 * S, NOW), `a &lt;b&gt; &amp; c\n\n⏳ ${BOLD_90S}`);
+  assert.equal(renderMessage("", NOW + 5 * S, NOW), "⏳ <b>00</b> روز <b>00</b> ساعت <b>00</b> دقیقه <b>05</b> ثانیه");
+  assert.equal(renderMessage("x", NOW + 400, NOW), `x\n\n${DONE_TEXT}`);
   assert.equal(isDone(NOW + 600, NOW), false);
   assert.equal(isDone(NOW + 400, NOW), true);
+});
+
+test("renderMessage: {} places the countdown inside the text", () => {
+  assert.equal(renderMessage("تا انتشار {} مانده", NOW + 90 * S, NOW), `تا انتشار ${BOLD_90S} مانده`);
+  assert.equal(renderMessage("<i>{}</i>", NOW + 90 * S, NOW), `&lt;i&gt;${BOLD_90S}&lt;/i&gt;`);
+  assert.equal(renderMessage("تا انتشار {} مانده", NOW + 400, NOW), `تا انتشار ${BOLD_ZERO} مانده\n\n${DONE_TEXT}`);
 });
 
 test("parseQuery: durations", () => {
