@@ -45,11 +45,13 @@ export function renderMessage(title, target, now) {
 
 /**
  * Next edit time: aligned so the remaining time is a whole multiple of `step`
- * seconds (the seconds field then reads 50, 40, 30… for step=10), at least 1s
- * from now, and never later than the target itself (the final "done" edit).
+ * seconds (the seconds field then reads 50, 40, 30… for step=10), at least
+ * min(1s, step/2) from now, and never later than the target itself (the final
+ * "done" edit).
  */
 export function nextTick(target, now, step) {
-  const k = Math.floor((target - now - SEC) / (step * SEC));
+  const margin = Math.min(SEC, (step * SEC) / 2);
+  const k = Math.floor((target - now - margin) / (step * SEC));
   return k > 0 ? target - k * step * SEC : target;
 }
 

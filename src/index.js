@@ -5,27 +5,25 @@
 //   sent, `chosen_inline_result` hands us its inline_message_id and we start
 //   a Countdown for it.
 // Countdown (Durable Object, one per sent message): keeps {id, target, title}
-//   and edits the message on an alarm every TICK seconds until the target.
-// /t/…: live page behind the "⏱ زمان دقیق" button, ticking every second.
-// The target time travels inside result_id and the button link, so nothing
-// else needs storage.
+//   and edits the message on an alarm every few seconds until the target.
+// The target time and edit interval travel inside result_id / callback_data,
+// so nothing else needs storage.
 
 import { DurableObject } from "cloudflare:workers";
 import { DONE_TEXT, formatLeft, isDone, nextTick, parseQuery, renderMessage, tzMinutes } from "./core.js";
-import { pageUrl, readPageUrl, renderPage } from "./page.js";
 
 const ALLOWED_UPDATES = ["message", "inline_query", "chosen_inline_result", "callback_query"];
-const STEPS = [5, 10, 15, 20, 30, 60]; // tick ladder used to slow down after a 429
+const STEPS = [2, 3, 5, 10, 15, 20, 30, 60]; // tick ladder used to slow down after a 429
+
+// Seconds between edits, as fast as Telegram's flood limits allow: about one
+// message per second in a private chat, 20 per minute in groups and channels.
+const PRIVATE_CHATS = new Set(["sender", "private"]);
+const tickFor = (env, chatType) =>
+  PRIVATE_CHATS.has(chatType) ? Number(env.TICK_PRIVATE) || 2 : Number(env.TICK) || 3;
 
 const enc = (target) => (target / 1000).toString(36);
 const dec = (s) => parseInt(s, 36) * 1000;
-
-async function keyboard(env, origin, target, title) {
-  const button = origin
-    ? { text: "⏱ زمان دقیق", url: await pageUrl(origin, env.WEBHOOK_SECRET, target, title) }
-    : { text: "⏱ زمان دقیق", callback_data: "t" + enc(target) }; // countdowns started before the live page
-  return { inline_keyboard: [[button]] };
-}
+const keyboard = (target) => ({ inline_keyboard: [[{ text: "⏱ زمان دقیق", callback_data: "t" + enc(target) }]] });
 
 async function tg(env, method, body) {
   try {
@@ -68,7 +66,7 @@ function helpText(env, bot, userId) {
     "• با <code>{}</code> جای شمارش را وسط متن خودتان بگذارید:",
     `<code>@${bot} 3d تا انتشار {} مانده</code>`,
     "",
-    "پیام هر چند ثانیه به‌روز می‌شود؛ دکمهٔ «⏱ زمان دقیق» شمارش ثانیه‌به‌ثانیه را باز می‌کند.",
+    "پیام هر ۲ تا ۳ ثانیه به‌روز می‌شود؛ دکمهٔ «⏱ زمان دقیق» زمان باقی‌مانده را تا ثانیه نشان می‌دهد.",
     "",
     `🆔 شناسهٔ شما: <code>${userId}</code>`,
   ].join("\n");
@@ -102,7 +100,7 @@ async function setup(env, origin) {
 }
 
 // Returns a Bot API call to send back as the webhook response, or null.
-async function handle(update, env, origin) {
+async function handle(update, env) {
   const now = Date.now();
   const tz = tzMinutes(env.TZ_OFFSET);
 
@@ -119,22 +117,23 @@ async function handle(update, env, origin) {
     }
     answer.results.push({
       type: "article",
-      id: "c" + enc(p.target),
+      id: `c${enc(p.target)}_${tickFor(env, q.chat_type)}`,
       title: p.title.replaceAll("{}", "⏳") || "شمارش معکوس",
       description: formatLeft(p.target - now),
       input_message_content: { message_text: renderMessage(p.title, p.target, now), parse_mode: "HTML" },
-      reply_markup: await keyboard(env, origin, p.target, p.title),
+      reply_markup: keyboard(p.target),
     });
     return answer;
   }
 
   if (update.chosen_inline_result) {
     const r = update.chosen_inline_result;
-    const target = r.result_id.startsWith("c") ? dec(r.result_id.slice(1)) : NaN;
+    const [, id36, tick] = /^c([0-9a-z]+)(?:_(\d+))?$/.exec(r.result_id) ?? [];
+    const target = id36 ? dec(id36) : NaN;
     if (r.inline_message_id && Number.isFinite(target) && allowed(env, r.from.id)) {
       const title = parseQuery(r.query, now, tz)?.title ?? "";
       const stub = env.COUNTDOWN.get(env.COUNTDOWN.idFromName(r.inline_message_id));
-      await stub.start({ id: r.inline_message_id, target, title, origin });
+      await stub.start({ id: r.inline_message_id, target, title, step: Number(tick) || undefined });
     }
     return null;
   }
@@ -165,23 +164,11 @@ export default {
       return Response.json(await setup(env, url.origin));
     }
 
-    if (url.pathname.startsWith("/t/")) {
-      const page = await readPageUrl(url, secret);
-      if (!page) return new Response("not found", { status: 404 });
-      return new Response(renderPage({ ...page, now: Date.now() }), {
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-store",
-          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
-        },
-      });
-    }
-
     if (request.method !== "POST") return new Response("DrNetTimer is running.");
     if (!secret || request.headers.get("x-telegram-bot-api-secret-token") !== secret) {
       return new Response("unauthorized", { status: 401 });
     }
-    const reply = await handle(await request.json(), env, url.origin);
+    const reply = await handle(await request.json(), env);
     return reply ? Response.json(reply) : new Response(null);
   },
 };
@@ -190,7 +177,7 @@ export class Countdown extends DurableObject {
   async start(job) {
     const storage = this.ctx.storage;
     if (await storage.get("job")) return; // duplicate delivery
-    const step = Number(this.env.TICK) || 10;
+    const step = job.step || Number(this.env.TICK) || 3;
     await storage.put("job", { ...job, step });
     await storage.setAlarm(nextTick(job.target, Date.now(), step));
   }
@@ -206,8 +193,7 @@ export class Countdown extends DurableObject {
       inline_message_id: job.id,
       text: renderMessage(job.title, job.target, now),
       parse_mode: "HTML",
-      // drop the button once finished
-      reply_markup: done ? undefined : await keyboard(this.env, job.origin, job.target, job.title),
+      reply_markup: done ? undefined : keyboard(job.target), // drop the button once finished
     });
 
     if (res.ok || /not modified/i.test(res.description ?? "")) {

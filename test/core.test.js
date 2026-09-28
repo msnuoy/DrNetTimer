@@ -99,6 +99,10 @@ test("nextTick aligns edits to whole steps before the target", () => {
   assert.equal(nextTick(T, T - 19.7 * S, 10), T - 10 * S); // fired a bit late
   assert.equal(nextTick(T, T - 10.5 * S, 10), T); // last one is the target itself
   assert.equal(nextTick(T, T + 2 * S, 10), T); // overdue → fire now
+  assert.equal(nextTick(T, T - 7 * S + 50, 1), T - 6 * S); // 1s ticks don't skip when slightly late
+  assert.equal(nextTick(T, T - 7.3 * S, 1), T - 6 * S); // …or fire twice when slightly early
+  assert.equal(nextTick(T, T - 8 * S + 50, 2), T - 6 * S);
+  assert.equal(nextTick(T, T - 9 * S + 50, 3), T - 6 * S);
   const first = nextTick(T, NOW + 7 * S, 10); // started 7s after the query
   assert.equal((T - first) % (10 * S), 0);
   assert.ok(first - (NOW + 7 * S) >= S && first - (NOW + 7 * S) <= 11 * S);
