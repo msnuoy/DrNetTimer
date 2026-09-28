@@ -37,8 +37,14 @@ function allowed(env, userId) {
   return ids.length === 0 || ids.includes(String(userId));
 }
 
-function helpText(env, userId) {
-  const bot = env.BOT_USERNAME || "DrNetTimer";
+// Bot username for help texts, from getMe (cached per isolate).
+let botUsername;
+async function username(env) {
+  botUsername ??= (await tg(env, "getMe", {})).result?.username;
+  return botUsername ?? "DrNetTimerBot";
+}
+
+function helpText(env, bot, userId) {
   return [
     `⏳ <b>${bot}</b> — شمارش معکوس زنده`,
     "",
@@ -55,6 +61,33 @@ function helpText(env, userId) {
     "",
     `🆔 شناسهٔ شما: <code>${userId}</code>`,
   ].join("\n");
+}
+
+// Checks the token, points the webhook here and fills in the bot profile
+// (command list; descriptions only if still empty, so BotFather edits stay).
+async function setup(env, origin) {
+  const me = await tg(env, "getMe", {});
+  if (!me.ok) return { ok: false, error: `Telegram rejected BOT_TOKEN: ${me.description}` };
+  const bot = (botUsername = me.result.username);
+  const [hook, , desc, short] = await Promise.all([
+    tg(env, "setWebhook", { url: `${origin}/`, secret_token: env.WEBHOOK_SECRET, allowed_updates: ALLOWED_UPDATES }),
+    tg(env, "setMyCommands", { commands: [{ command: "start", description: "راهنما" }] }),
+    tg(env, "getMyDescription", {}),
+    tg(env, "getMyShortDescription", {}),
+  ]);
+  if (desc.ok && !desc.result.description) {
+    const description = `⏳ شمارش معکوس زنده داخل خود پیام.\n\nدر هر چت، گروه یا کانالی بنویسید:\n@${bot} 3d 🚀 عنوان\n\nزمان: مدت (3d، 2h30m)، ساعت (18:30) یا تاریخ (1405/07/10 18:30).`;
+    await tg(env, "setMyDescription", { description });
+  }
+  if (short.ok && !short.result.short_description) {
+    await tg(env, "setMyShortDescription", { short_description: `⏳ شمارش معکوس زنده داخل پیام. بنویسید: @${bot} 3d عنوان` });
+  }
+  return {
+    ok: hook.ok,
+    bot: `@${bot}`,
+    inline_mode: Boolean(me.result.supports_inline_queries),
+    webhook: hook.description,
+  };
 }
 
 // Returns a Bot API call to send back as the webhook response, or null.
@@ -104,7 +137,8 @@ async function handle(update, env) {
 
   const msg = update.message;
   if (msg?.chat.type === "private" && msg.text?.startsWith("/start")) {
-    return { method: "sendMessage", chat_id: msg.chat.id, text: helpText(env, msg.from?.id), parse_mode: "HTML" };
+    const text = helpText(env, await username(env), msg.from?.id);
+    return { method: "sendMessage", chat_id: msg.chat.id, text, parse_mode: "HTML" };
   }
   return null;
 }
@@ -114,11 +148,10 @@ export default {
     const url = new URL(request.url);
     const secret = env.WEBHOOK_SECRET;
 
-    // One-time: open https://<worker>/setup?key=<WEBHOOK_SECRET> after deploying.
+    // Called by `npm run setup` (or open https://<worker>/setup?key=<WEBHOOK_SECRET>).
     if (url.pathname === "/setup") {
       if (!secret || url.searchParams.get("key") !== secret) return new Response("forbidden", { status: 403 });
-      const hook = { url: `${url.origin}/`, secret_token: secret, allowed_updates: ALLOWED_UPDATES };
-      return Response.json(await tg(env, "setWebhook", hook));
+      return Response.json(await setup(env, url.origin));
     }
 
     if (request.method !== "POST") return new Response("DrNetTimer is running.");

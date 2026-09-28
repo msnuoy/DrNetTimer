@@ -4,7 +4,7 @@
 بدون دیتابیس خارجی و بدون VPS.
 
 ```
-@DrNetTimer 3d 🚀 نسخه جدید Dr.Net
+@DrNetTimerBot 3d 🚀 نسخه جدید Dr.Net
 ```
 
 <div dir="rtl">
@@ -32,25 +32,41 @@ Countdown (یک DO برای هر پیام) ── alarm هر TICK ثانیه ─
 - اگر تلگرام خطای 429 بدهد، ربات به اندازهٔ `retry_after` صبر می‌کند و فاصلهٔ ویرایش‌ها را بیشتر می‌کند.
   اگر پیام پاک شود، شمارش متوقف می‌شود.
 
-## راه‌اندازی
+## راه‌اندازی (حدود ۵ دقیقه)
 
-1. در [@BotFather](https://t.me/BotFather):
-   - `/newbot` و گرفتن توکن. username ربات باید به `bot` ختم شود (مثلاً `DrNetTimerBot`).
-     همان را بدون @ در `BOT_USERNAME` داخل `wrangler.toml` بگذارید.
-   - `/setinline` برای روشن کردن Inline Mode (placeholder مثلاً: `3d عنوان`)
-   - `/setinlinefeedback` و انتخاب **Enabled**. **ضروری است**، وگرنه `inline_message_id` نمی‌رسد و پیام زنده نمی‌شود.
-2. دیپلوی (نیازمند Node.js نسخهٔ ۲۲ یا بالاتر و یک حساب رایگان Cloudflare):
-   ```bash
-   npm install
-   npx wrangler login
-   npx wrangler deploy                      # آدرس Worker را چاپ می‌کند
-   npx wrangler secret put BOT_TOKEN        # توکن BotFather
-   npx wrangler secret put WEBHOOK_SECRET   # رشتهٔ تصادفی (فقط A-Z a-z 0-9 _ -)، مثل: openssl rand -hex 32
-   ```
-3. یک بار این آدرس را باز کنید تا webhook ثبت شود:
-   `https://drnettimer.<subdomain>.workers.dev/setup?key=<WEBHOOK_SECRET>`
-4. (پیشنهادی) به ربات `/start` بدهید، شناسهٔ عددی خود را بردارید و در `ALLOWED_USERS` بگذارید.
-   بعد دوباره `npx wrangler deploy` کنید.
+**۱. در تلگرام، [@BotFather](https://t.me/BotFather):**
+- `/newbot`: یک نام و یک username بدهید و توکن را کپی کنید. username باید به `bot` ختم شود (مثلاً `DrNetTimerBot`).
+- `/setinline`: ربات را انتخاب کنید و یک placeholder بدهید، مثلاً `3d عنوان`.
+- `/setinlinefeedback`: ربات را انتخاب کنید و **Enabled** را بزنید. **ضروری است**، وگرنه پیام زنده نمی‌شود.
+
+**۲. روی کامپیوتر خودتان** (Node.js نسخهٔ ۲۲ یا بالاتر، و یک حساب رایگان Cloudflare):
+
+```bash
+cd DrNetTimer
+npm run setup
+```
+
+اسکریپت این کارها را خودش انجام می‌دهد:
+- توکن را می‌پرسد، به‌علاوهٔ شناسهٔ کاربرانی که اجازهٔ ساخت شمارش دارند (اختیاری).
+- اگر لازم باشد، مرورگر را برای ورود به Cloudflare باز می‌کند.
+- Worker را deploy می‌کند و secretها را ذخیره می‌کند.
+- webhook را ثبت می‌کند، دستور `/start` و توضیح ربات را تنظیم می‌کند و روشن بودن Inline Mode را چک می‌کند.
+
+**۳. تست:** به ربات `/start` بدهید. راهنما و شناسهٔ عددی شما را برمی‌گرداند. بعد در هر چتی بنویسید `@DrNetTimerBot 2m تست` و نتیجه را بفرستید. حداکثر ۱۰ ثانیه بعد شمارش شروع به کم شدن می‌کند.
+
+**خصوصی کردن ربات:**
+- `npx wrangler secret put ALLOWED_USERS` و شناسهٔ خود را وارد کنید. چند شناسه را با کاما جدا کنید.
+- برای عمومی کردن دوباره: `npx wrangler secret delete ALLOWED_USERS`.
+
+### اگر کار نکرد
+
+| مشکل | علت |
+|---|---|
+| با تایپ `@bot` نتیجه‌ای نمی‌آید | `/setinline` انجام نشده یا webhook ثبت نشده. `npm run setup` را دوباره اجرا کنید. |
+| پیام ارسال می‌شود ولی کم نمی‌شود | `/setinlinefeedback` روی Enabled نیست. |
+| اسکریپت به آدرس Worker نمی‌رسد | لینکی را که چاپ می‌کند در مرورگر باز کنید (شاید با VPN). |
+
+لاگ زنده: `npm run logs`
 
 ## فرمت ورودی
 
@@ -62,14 +78,16 @@ Countdown (یک DO برای هر پیام) ── alarm هر TICK ثانیه ─
 
 اعداد فارسی هم قبول می‌شوند. هر چه بعد از زمان بیاید عنوان پیام است.
 
-## تنظیمات (`wrangler.toml` → `[vars]`)
+## تنظیمات
+
+در `wrangler.toml` (بعد از تغییر: `npm run deploy`):
 
 | متغیر | پیش‌فرض | توضیح |
 |---|---|---|
 | `TICK` | `10` | فاصلهٔ ویرایش هر پیام (ثانیه) |
 | `TZ_OFFSET` | `+03:30` | منطقهٔ زمانی برای ورودی ساعت و تاریخ |
-| `ALLOWED_USERS` | خالی | شناسه‌هایی که اجازهٔ ساخت شمارش دارند (با کاما). خالی یعنی همه |
-| `BOT_USERNAME` | `DrNetTimer` | فقط برای متن راهنما |
+
+Secretها را `npm run setup` می‌سازد: `BOT_TOKEN`، `WEBHOOK_SECRET` و `ALLOWED_USERS` (اختیاری).
 
 ## محدودیت‌ها
 

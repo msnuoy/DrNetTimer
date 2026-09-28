@@ -4,11 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "setup": "node scripts/setup.mjs",
     "deploy": "wrangler deploy",
+    "logs": "wrangler tail",
+    "dev": "wrangler dev",
     "test": "node --test"
   },
   "devDependencies": {
     "wrangler": "^4.143.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

@@ -2,12 +2,13 @@ name = "drnettimer"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
-# Secrets (not here): npx wrangler secret put BOT_TOKEN / WEBHOOK_SECRET
+# Secrets are set by `npm run setup` (or `npx wrangler secret put <NAME>`):
+#   BOT_TOKEN       token from @BotFather
+#   WEBHOOK_SECRET  random string Telegram sends with every update
+#   ALLOWED_USERS   optional: comma-separated Telegram user IDs who may create countdowns
 [vars]
-BOT_USERNAME = "DrNetTimer"
 TICK = "10"          # seconds between edits of each countdown message
 TZ_OFFSET = "+03:30" # time zone for "18:30" and date inputs
-ALLOWED_USERS = ""   # comma-separated Telegram user IDs who may create countdowns; empty = anyone
 
 [[durable_objects.bindings]]
 name = "COUNTDOWN"
