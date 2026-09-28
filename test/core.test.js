@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   DONE_TEXT,
+  countdown,
   formatLeft,
   isDone,
   jalaliToGregorian,
@@ -18,29 +19,51 @@ const TEHRAN = 210;
 // 2026-09-28 10:00:00.250 in Tehran (06:30 UTC)
 const NOW = Date.UTC(2026, 8, 28, 6, 30, 0, 250);
 
-test("formatLeft uses the requested layout", () => {
-  assert.equal(formatLeft(2 * D + 14 * H + 32 * 60 * S + 8 * S), "⏳ 02 روز 14 ساعت 32 دقیقه 08 ثانیه");
-  assert.equal(formatLeft(0), "⏳ 00 روز 00 ساعت 00 دقیقه 00 ثانیه");
-  assert.equal(formatLeft(-5 * S), "⏳ 00 روز 00 ساعت 00 دقیقه 00 ثانیه");
-  assert.equal(formatLeft(120 * D), "⏳ 120 روز 00 ساعت 00 دقیقه 00 ثانیه");
-  assert.equal(formatLeft(19.7 * S), "⏳ 00 روز 00 ساعت 00 دقیقه 20 ثانیه"); // slightly late tick
+const M = 60 * S;
+const W = 7 * D;
+
+test("countdown: weeks to minutes, no empty leading units", () => {
+  assert.equal(countdown(5 * D), "05 روز 00 ساعت 00 دقیقه"); // no weeks for 5 days
+  assert.equal(countdown(4 * D + 23 * H + 59 * M), "04 روز 23 ساعت 59 دقیقه");
+  assert.equal(countdown(10 * D + 3 * H), "01 هفته 03 روز 03 ساعت 00 دقیقه");
+  assert.equal(countdown(2 * W + 5 * M), "02 هفته 00 روز 00 ساعت 05 دقیقه");
+  assert.equal(countdown(3 * H + 5 * M), "03 ساعت 05 دقیقه");
+  assert.equal(countdown(45 * M), "45 دقیقه");
+  assert.equal(countdown(0), "00 دقیقه");
+  assert.equal(countdown(-5 * S), "00 دقیقه");
 });
 
-const BOLD_90S = "<b>00</b> روز <b>00</b> ساعت <b>01</b> دقیقه <b>30</b> ثانیه";
-const BOLD_ZERO = "<b>00</b> روز <b>00</b> ساعت <b>00</b> دقیقه <b>00</b> ثانیه";
+test("countdown: minutes round up, so it never shows 00 before the end", () => {
+  assert.equal(countdown(5 * D - 10 * S), "05 روز 00 ساعت 00 دقیقه");
+  assert.equal(countdown(4 * M + 30 * S), "05 دقیقه");
+  assert.equal(countdown(30 * S), "01 دقیقه");
+  assert.equal(countdown(700), "01 دقیقه");
+  assert.equal(countdown(4 * M - 50), "04 دقیقه"); // tick on the minute, fired 50ms late
+  assert.equal(countdown(4 * M + 30), "04 دقیقه"); // …or a hair early
+});
+
+test("formatLeft: exact time for the button, down to the second", () => {
+  assert.equal(formatLeft(2 * D + 14 * H + 32 * M + 8 * S), "⏳ 02 روز 14 ساعت 32 دقیقه 08 ثانیه");
+  assert.equal(formatLeft(120 * D), "⏳ 17 هفته 01 روز 00 ساعت 00 دقیقه 00 ثانیه");
+  assert.equal(formatLeft(3 * M + 7 * S), "⏳ 03 دقیقه 07 ثانیه");
+  assert.equal(formatLeft(19.7 * S), "⏳ 20 ثانیه");
+  assert.equal(formatLeft(0), "⏳ 00 ثانیه");
+  assert.equal(formatLeft(-5 * S), "⏳ 00 ثانیه");
+});
 
 test("renderMessage: custom text, then the countdown with bold numbers", () => {
-  assert.equal(renderMessage("a <b> & c", NOW + 90 * S, NOW), `a &lt;b&gt; &amp; c\n\n⏳ ${BOLD_90S}`);
-  assert.equal(renderMessage("", NOW + 5 * S, NOW), "⏳ <b>00</b> روز <b>00</b> ساعت <b>00</b> دقیقه <b>05</b> ثانیه");
+  const left = "<b>01</b> روز <b>02</b> ساعت <b>03</b> دقیقه";
+  assert.equal(renderMessage("a <b> & c", NOW + D + 2 * H + 3 * M, NOW), `a &lt;b&gt; &amp; c\n\n⏳ ${left}`);
+  assert.equal(renderMessage("", NOW + 5 * S, NOW), "⏳ <b>01</b> دقیقه");
   assert.equal(renderMessage("x", NOW + 400, NOW), `x\n\n${DONE_TEXT}`);
   assert.equal(isDone(NOW + 600, NOW), false);
   assert.equal(isDone(NOW + 400, NOW), true);
 });
 
 test("renderMessage: {} places the countdown inside the text", () => {
-  assert.equal(renderMessage("تا انتشار {} مانده", NOW + 90 * S, NOW), `تا انتشار ${BOLD_90S} مانده`);
-  assert.equal(renderMessage("<i>{}</i>", NOW + 90 * S, NOW), `&lt;i&gt;${BOLD_90S}&lt;/i&gt;`);
-  assert.equal(renderMessage("تا انتشار {} مانده", NOW + 400, NOW), `تا انتشار ${BOLD_ZERO} مانده\n\n${DONE_TEXT}`);
+  assert.equal(renderMessage("تا انتشار {} مانده", NOW + 90 * S, NOW), "تا انتشار <b>02</b> دقیقه مانده");
+  assert.equal(renderMessage("<i>{}</i>", NOW + 3 * H, NOW), "&lt;i&gt;<b>03</b> ساعت <b>00</b> دقیقه&lt;/i&gt;");
+  assert.equal(renderMessage("تا انتشار {} مانده", NOW + 400, NOW), `تا انتشار <b>00</b> دقیقه مانده\n\n${DONE_TEXT}`);
 });
 
 test("parseQuery: durations", () => {
@@ -103,6 +126,8 @@ test("nextTick aligns edits to whole steps before the target", () => {
   assert.equal(nextTick(T, T - 7.3 * S, 1), T - 6 * S); // …or fire twice when slightly early
   assert.equal(nextTick(T, T - 8 * S + 50, 2), T - 6 * S);
   assert.equal(nextTick(T, T - 9 * S + 50, 3), T - 6 * S);
+  assert.equal(nextTick(T, T - 5 * 60 * S - 20 * S, 60), T - 5 * 60 * S); // minute step: edit as the minute changes
+  assert.equal(nextTick(T, T - 5 * 60 * S + 50, 60), T - 4 * 60 * S);
   const first = nextTick(T, NOW + 7 * S, 10); // started 7s after the query
   assert.equal((T - first) % (10 * S), 0);
   assert.ok(first - (NOW + 7 * S) >= S && first - (NOW + 7 * S) <= 11 * S);

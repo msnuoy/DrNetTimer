@@ -12,15 +12,32 @@ export const DONE_TEXT = "✅ زمان به پایان رسید!";
 const pad = (n) => String(n).padStart(2, "0");
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-/** "02 روز 14 ساعت 32 دقیقه 08 ثانیه"; `wrap` styles each number. */
-export function countdown(ms, wrap = (n) => n) {
-  const t = Math.max(0, Math.round(ms / SEC));
-  const [d, h, m, s] = [Math.floor(t / 86400), Math.floor((t % 86400) / 3600), Math.floor((t % 3600) / 60), t % 60];
-  return `${wrap(pad(d))} روز ${wrap(pad(h))} ساعت ${wrap(pad(m))} دقیقه ${wrap(pad(s))} ثانیه`;
+const UNITS = [["هفته", 604800], ["روز", 86400], ["ساعت", 3600], ["دقیقه", 60]];
+const WITH_SECONDS = [...UNITS, ["ثانیه", 1]];
+
+// "05 روز 03 ساعت 20 دقیقه": leading units that are zero are left out, the
+// smallest unit always shows. `wrap` styles each number.
+function units(seconds, list, wrap) {
+  const parts = [];
+  for (const [name, size] of list) {
+    const n = Math.floor(seconds / size);
+    seconds %= size;
+    if (n || parts.length || size === list.at(-1)[1]) parts.push(`${wrap(pad(n))} ${name}`);
+  }
+  return parts.join(" ");
 }
 
-/** Plain countdown line, e.g. "⏳ 02 روز 14 ساعت 32 دقیقه 08 ثانیه". */
-export const formatLeft = (ms) => `⏳ ${countdown(ms)}`;
+/**
+ * Message countdown to the minute, e.g. "05 روز 03 ساعت 20 دقیقه". Minutes
+ * round up, so it never reads "00 دقیقه" before the end.
+ */
+export function countdown(ms, wrap = (n) => n) {
+  const minutes = ms <= 0 ? 0 : Math.max(1, Math.ceil((ms - SEC) / MIN));
+  return units(minutes * 60, UNITS, wrap);
+}
+
+/** Exact remaining time for the button, e.g. "⏳ 05 روز 03 ساعت 20 دقیقه 08 ثانیه". */
+export const formatLeft = (ms) => `⏳ ${units(Math.max(0, Math.round(ms / SEC)), WITH_SECONDS, String)}`;
 
 /** True once the remaining time rounds down to zero seconds. */
 export const isDone = (target, now) => target - now < SEC / 2;
@@ -45,7 +62,7 @@ export function renderMessage(title, target, now) {
 
 /**
  * Next edit time: aligned so the remaining time is a whole multiple of `step`
- * seconds (the seconds field then reads 50, 40, 30… for step=10), at least
+ * seconds (with step=60 each edit lands exactly as the minute changes), at least
  * min(1s, step/2) from now, and never later than the target itself (the final
  * "done" edit).
  */

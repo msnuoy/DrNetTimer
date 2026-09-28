@@ -7,8 +7,6 @@ compatibility_date = "2026-09-01"
 #   WEBHOOK_SECRET  random string Telegram sends with every update
 #   ALLOWED_USERS   optional: comma-separated Telegram user IDs who may create countdowns
 [vars]
-TICK = "3"           # seconds between edits in groups and channels (Telegram allows ~20 msgs/min)
-TICK_PRIVATE = "2"   # seconds between edits in private chats (Telegram allows ~1 msg/s)
 TZ_OFFSET = "+03:30" # time zone for "18:30" and date inputs
 
 [[durable_objects.bindings]]

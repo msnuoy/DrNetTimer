@@ -5,21 +5,15 @@
 //   sent, `chosen_inline_result` hands us its inline_message_id and we start
 //   a Countdown for it.
 // Countdown (Durable Object, one per sent message): keeps {id, target, title}
-//   and edits the message on an alarm every few seconds until the target.
-// The target time and edit interval travel inside result_id / callback_data,
-// so nothing else needs storage.
+//   and edits the message on an alarm once a minute until the target.
+// The target time travels inside result_id / callback_data, so nothing else
+// needs storage.
 
 import { DurableObject } from "cloudflare:workers";
-import { DONE_TEXT, formatLeft, isDone, nextTick, parseQuery, renderMessage, tzMinutes } from "./core.js";
+import { DONE_TEXT, countdown, formatLeft, isDone, nextTick, parseQuery, renderMessage, tzMinutes } from "./core.js";
 
 const ALLOWED_UPDATES = ["message", "inline_query", "chosen_inline_result", "callback_query"];
-const STEPS = [2, 3, 5, 10, 15, 20, 30, 60]; // tick ladder used to slow down after a 429
-
-// Seconds between edits, as fast as Telegram's flood limits allow: about one
-// message per second in a private chat, 20 per minute in groups and channels.
-const PRIVATE_CHATS = new Set(["sender", "private"]);
-const tickFor = (env, chatType) =>
-  PRIVATE_CHATS.has(chatType) ? Number(env.TICK_PRIVATE) || 2 : Number(env.TICK) || 3;
+const STEP = 60; // the message shows minutes, so it's edited once a minute, as the minute changes
 
 const enc = (target) => (target / 1000).toString(36);
 const dec = (s) => parseInt(s, 36) * 1000;
@@ -66,7 +60,7 @@ function helpText(env, bot, userId) {
     "• با <code>{}</code> جای شمارش را وسط متن خودتان بگذارید:",
     `<code>@${bot} 3d تا انتشار {} مانده</code>`,
     "",
-    "پیام هر ۲ تا ۳ ثانیه به‌روز می‌شود؛ دکمهٔ «⏱ زمان دقیق» زمان باقی‌مانده را تا ثانیه نشان می‌دهد.",
+    "پیام هر دقیقه به‌روز می‌شود؛ دکمهٔ «⏱ زمان دقیق» زمان باقی‌مانده را تا ثانیه نشان می‌دهد.",
     "",
     `🆔 شناسهٔ شما: <code>${userId}</code>`,
   ].join("\n");
@@ -117,9 +111,9 @@ async function handle(update, env) {
     }
     answer.results.push({
       type: "article",
-      id: `c${enc(p.target)}_${tickFor(env, q.chat_type)}`,
+      id: "c" + enc(p.target),
       title: p.title.replaceAll("{}", "⏳") || "شمارش معکوس",
-      description: formatLeft(p.target - now),
+      description: `⏳ ${countdown(p.target - now)}`,
       input_message_content: { message_text: renderMessage(p.title, p.target, now), parse_mode: "HTML" },
       reply_markup: keyboard(p.target),
     });
@@ -128,12 +122,12 @@ async function handle(update, env) {
 
   if (update.chosen_inline_result) {
     const r = update.chosen_inline_result;
-    const [, id36, tick] = /^c([0-9a-z]+)(?:_(\d+))?$/.exec(r.result_id) ?? [];
+    const [, id36] = /^c([0-9a-z]+)(?:_\d+)?$/.exec(r.result_id) ?? []; // "_<tick>": results from older versions
     const target = id36 ? dec(id36) : NaN;
     if (r.inline_message_id && Number.isFinite(target) && allowed(env, r.from.id)) {
       const title = parseQuery(r.query, now, tz)?.title ?? "";
       const stub = env.COUNTDOWN.get(env.COUNTDOWN.idFromName(r.inline_message_id));
-      await stub.start({ id: r.inline_message_id, target, title, step: Number(tick) || undefined });
+      await stub.start({ id: r.inline_message_id, target, title });
     }
     return null;
   }
@@ -177,9 +171,8 @@ export class Countdown extends DurableObject {
   async start(job) {
     const storage = this.ctx.storage;
     if (await storage.get("job")) return; // duplicate delivery
-    const step = job.step || Number(this.env.TICK) || 3;
-    await storage.put("job", { ...job, step });
-    await storage.setAlarm(nextTick(job.target, Date.now(), step));
+    await storage.put("job", job);
+    await storage.setAlarm(nextTick(job.target, Date.now(), STEP));
   }
 
   async alarm() {
@@ -198,12 +191,10 @@ export class Countdown extends DurableObject {
 
     if (res.ok || /not modified/i.test(res.description ?? "")) {
       if (done) return this.stop();
-      return storage.setAlarm(nextTick(job.target, now, job.step));
+      return storage.setAlarm(nextTick(job.target, now, STEP));
     }
     if (res.error_code === 429) {
-      // Flood control: wait as told and edit less often from now on.
-      job.step = STEPS.find((s) => s > job.step) ?? job.step;
-      await storage.put("job", job);
+      // Flood control: wait as told, then carry on.
       return storage.setAlarm(now + (res.parameters?.retry_after ?? 5) * 1000);
     }
     if (res.error_code >= 400 && res.error_code < 500) {
@@ -213,7 +204,7 @@ export class Countdown extends DurableObject {
     }
     // Network / Telegram 5xx: keep going, but give up an hour past the target.
     if (now - job.target > 3600_000) return this.stop();
-    return storage.setAlarm(done ? now + 5000 : nextTick(job.target, now, job.step));
+    return storage.setAlarm(done ? now + 5000 : nextTick(job.target, now, STEP));
   }
 
   async stop() {
