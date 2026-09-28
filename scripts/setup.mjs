@@ -56,7 +56,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
 }
 if (!existsSync(WRANGLER)) {
   console.log("Installing dependencies…");
-  spawnSync("npm", ["install", "--no-audit", "--no-fund"], { cwd: ROOT, stdio: "inherit", shell: true });
+  spawnSync("npm install --no-audit --no-fund", { cwd: ROOT, stdio: "inherit", shell: true }); // one string: args + shell is deprecated in Node 24
   if (!existsSync(WRANGLER)) fail("npm install failed.");
 }
 
